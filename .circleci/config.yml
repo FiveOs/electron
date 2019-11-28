@@ -11,9 +11,13 @@ parameters:
 
   run-build-linux:
     type: boolean
-    default: true
+    default: false
 
   run-build-mac:
+    type: boolean
+    default: false
+
+  run-build-win:
     type: boolean
     default: true
 
@@ -71,6 +75,12 @@ machine-mac-large: &machine-mac-large
   resource_class: large
   macos:
     xcode: "10.3.0"
+
+machine-windows-xlarge: &machine-windows-xlarge
+  machine:
+    image: 'windows-server-2019-vs2019:stable'
+    resource_class: windows.xlarge
+    shell: bash.exe
 
 # Build configurations options.
 env-testing-build: &env-testing-build
@@ -1471,6 +1481,27 @@ jobs:
       GCLIENT_EXTRA_ARGS: '--custom-var=checkout_mac=True --custom-var=host_os=mac'
     <<: *steps-checkout-and-save-cache
 
+  win-checkout-fast:
+    <<: *machine-linux-2xlarge
+    environment:
+      <<: *env-linux-2xlarge
+      <<: *env-testing-build
+      GCLIENT_EXTRA_ARGS: '--custom-var=checkout_win=True --custom-var=host_os=win'
+    steps:
+      - electron-build:
+          persist: false
+          build: false
+          checkout: true
+          persist-checkout: true
+
+  win-checkout-and-save-cache:
+    <<: *machine-linux-2xlarge
+    environment:
+      <<: *env-linux-2xlarge
+      <<: *env-testing-build
+      GCLIENT_EXTRA_ARGS: '--custom-var=checkout_win=True --custom-var=host_os=win'
+    <<: *steps-checkout-and-save-cache
+
   # Layer 2: Builds.
   linux-x64-testing:
     <<: *machine-linux-2xlarge
@@ -1790,6 +1821,21 @@ jobs:
       GCLIENT_EXTRA_ARGS: '--custom-var=checkout_boto=True --custom-var=checkout_requests=True'
       UPLOAD_TO_S3: << pipeline.parameters.upload-to-s3 >>
     <<: *steps-electron-build-for-publish
+
+  win64-testing:
+    <<: *machine-windows-xlarge
+    environment:
+      <<: *env-mac-large
+      <<: *env-testing-build
+      # <<: *env-enable-sccache
+      <<: *env-ninja-status
+      GCLIENT_EXTRA_ARGS: '--custom-var=checkout_win=True --custom-var=host_os=win'
+    steps:
+      - electron-build:
+          persist: true
+          checkout: false
+          checkout-and-assume-cache: true
+          attach: false
 
   # Layer 3: Tests.
   linux-x64-unittests:
@@ -2163,6 +2209,16 @@ workflows:
       - mas-testing-tests:
           requires:
             - mas-testing
+
+  build-win:
+    when: << pipeline.parameters.run-build-win >>
+    jobs:
+      - win-checkout-fast
+      - win-checkout-and-save-cache
+
+      - win64-testing:
+          requires:
+            - win-checkout-and-save-cache
 
   nightly-linux-release-test:
     triggers:
